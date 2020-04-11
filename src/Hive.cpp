@@ -35,10 +35,12 @@ enum GRIDSTATE {
 };
 
 enum TURNMODE {
-	SIXTY = 0,				///
-	NINETY = 1,				///
-	ONETWENTY = 2,			///
-	ONEEIGHTY = 3			///
+	THIRTY = 0,
+	SIXTY = 1,				///
+	NINETY = 2,				///
+	ONETWENTY = 3,			///
+	ONEFIFTY = 4,
+	ONEEIGHTY = 5			///
 };
 
 enum OUTMODE {
@@ -51,15 +53,6 @@ enum OUTMODE {
 enum MODULESTATE {
 	GRID = 0,
 	EDIT = 1
-};
-
-enum DIRECTION {			///
-	NE = 0,
-	E = 1,
-	SE = 2,
-	SW = 3,
-	W = 4,
-	NW = 5
 };
 
 const int MAX_RADIUS = 17;						/// Max of 17 ensures the area of a cell does not shrink beyond that of one in Maze
@@ -150,13 +143,13 @@ struct HiveModule : Module {
 	float gridCv[SIZE][SIZE];
 
 	/** [Stored to JSON] */
-	DIRECTION startDir[NUM_PORTS];												///
+	int startDir[NUM_PORTS];												///
 	/** [Stored to JSON] */
 	int qStartPos[NUM_PORTS];													///
 	/** [Stored to JSON] */
 	int rStartPos[NUM_PORTS];													///
 	/** [Stored to JSON] */
-	DIRECTION dir[NUM_PORTS];													///
+	int dir[NUM_PORTS];													///
 	/** [Stored to JSON] */
 	int qPos[NUM_PORTS];														///
 	/** [Stored to JSON] */
@@ -164,8 +157,8 @@ struct HiveModule : Module {
 
 	/** [Stored to JSON] */
 	TURNMODE turnMode[NUM_PORTS];
-    /** [Stored to JSON] */
-    TURNMODE ninetyState[NUM_PORTS];											///
+	/** [Stored to JSON] */														///!!!
+	bool diagonalState[NUM_PORTS] = { false };
 	/** [Stored to JSON] */
 	OUTMODE outMode[NUM_PORTS];
 	/** [Stored to JSON] */
@@ -221,9 +214,9 @@ struct HiveModule : Module {
 		for (int i = 0; i < NUM_PORTS; i++) {
 			qPos[i] = qStartPos[i] = 0 + (MAX_RADIUS - usedRadius);															///	Start along SW edge
 			rPos[i] = rStartPos[i] = usedRadius / NUM_PORTS * i + (usedRadius - 1) + (MAX_RADIUS - usedRadius);				/// Start along SW edge
-			dir[i] = startDir[i] = NE;																						/// Start direction NE
-			turnMode[i] = TURNMODE::SIXTY;																					/// Start with small turns 
-            ninetyState[i] = TURNMODE::SIXTY;																				/// Turnmode 90 starts with a small turn first
+			dir[i] = startDir[i] = 1;																						/// Start direction NE
+			turnMode[i] = TURNMODE::SIXTY;		
+			diagonalState[i] = false;																			/// Start with small turns 
 			outMode[i] = OUTMODE::UNI_3V;
 			resetTimer[i].reset();
 			ratchetingEnabled[i] = true;
@@ -346,68 +339,114 @@ struct HiveModule : Module {
 		rPos[port] += (SIZE - 1) / 2;
 	}
 
-	void moveHex(int i, DIRECTION d) {														///
-		switch (d) {
-			case NE:
-				qPos[i] += 1;
-				rPos[i] -= 1;
+	void moveHex(int port, int direction) {														///
+		switch (direction) {
+			case 0:
+				if (!diagonalState[port]) {
+					qPos[port] += 1;
+					rPos[port] -= 1;
+				}
+				else
+					rPos[port] -= 1;
+				diagonalState[port] = !diagonalState[port];
 				break;
-			case E:
-				qPos[i] += 1;
+			case 1:
+				qPos[port] += 1;
+				rPos[port] -= 1;
 				break;
-			case SE:
-				rPos[i] += 1;
+			case 2:
+				if (!diagonalState[port])
+					qPos[port] += 1;
+				else {
+					qPos[port] += 1;
+					rPos[port] -= 1;
+				}
+				diagonalState[port] = !diagonalState[port];
 				break;
-			case SW:
-				qPos[i] -= 1;
-				rPos[i] += 1;
+			case 3:
+				qPos[port] += 1;
 				break;
-			case W:
-				qPos[i] -= 1;
+			case 4:
+				if (!diagonalState[port])
+					rPos[port] += 1;
+				else
+					qPos[port] += 1;
+				diagonalState[port] = !diagonalState[port];
 				break;
-			case NW:
-				rPos[i] -= 1;
+			case 5:
+				rPos[port] += 1;
+				break;
+			case 6:
+				if (!diagonalState[port]) {
+					qPos[port] -= 1;
+					rPos[port] += 1;
+				}
+				else
+					rPos[port] += 1;
+				diagonalState[port] = !diagonalState[port];
+				break;
+			case 7:
+				qPos[port] -= 1;
+				rPos[port] += 1;
+				break;
+			case 8:
+				if (!diagonalState[port])
+					qPos[port] -= 1;
+				else {
+					qPos[port] -= 1;
+					rPos[port] += 1;
+				}
+				diagonalState[port] = !diagonalState[port];
+				break;
+			case 9:
+				qPos[port] -= 1;
+				break;
+			case 10:
+				if (!diagonalState[port])
+					rPos[port] -= 1;
+				else
+					qPos[port] -= 1;
+				diagonalState[port] = !diagonalState[port];
+				break;
+			case 11:
+				rPos[port] -= 1;
 				break;
 		}
-		if (!cellVisible(qPos[i], rPos[i], usedSize))
-			wrapHex(i);
+		if (!cellVisible(qPos[port], rPos[port], usedSize))
+			wrapHex(port);
 	}
 
 	void process(const ProcessArgs& args) override {
 		if (shiftR1Trigger.process(inputs[SHIFT_R1_INPUT].getVoltage())) {				///
 			for (int i = 0; i < NUM_PORTS; i++) {
-				if (dir[i] == NW)
-					moveHex(i, NE);
+				if (dir[i] % 2 != 0)
+					moveHex(i, (dir[i] + 2) % 12);
 				else
-					moveHex(i, (DIRECTION)(dir[i] + 1));
+					moveHex(i, (dir[i] + 3) % 12);
 			}
 		}
 		if (shiftR2Trigger.process(inputs[SHIFT_R2_INPUT].getVoltage())) {				///
 			for (int i = 0; i < NUM_PORTS; i++) {
-				if (dir[i] == NW)
-					moveHex(i, E);
-				else if (dir[i] == W)
-					moveHex(i, NE);
+				if (dir[i] % 2 != 0)
+					moveHex(i, (dir[i] + 4) % 12);
 				else
-					moveHex(i, (DIRECTION)(dir[i] + 2));
+					moveHex(i, (dir[i] + 3) % 12);
 			}
 		}
 		if (shiftL1Trigger.process(inputs[SHIFT_L1_INPUT].getVoltage())) {				///
 			for (int i = 0; i < NUM_PORTS; i++) {
-				if (dir[i] == NE)
-					moveHex(i, NW);
+				if (dir[i] % 2 != 0)
+					moveHex(i, (dir[i] + 10) % 12);
 				else
-					moveHex(i, (DIRECTION)(dir[i] - 1));
+					moveHex(i, (dir[i] + 9) % 12);
 			}
 		}
 		if (shiftL2Trigger.process(inputs[SHIFT_L2_INPUT].getVoltage())) {				///
 			for (int i = 0; i < NUM_PORTS; i++) {
-				if (dir[i] == NE)
-					moveHex(i, W);
-				else if (dir[i] == E)
-					moveHex(i, NW);
+				if (dir[i] % 2 != 0)
+					moveHex(i, (dir[i] + 8) % 12);
 				else
-					moveHex(i, (DIRECTION)(dir[i] - 2));
+					moveHex(i, (dir[i] + 9) % 12);
 			}
 		}
 
@@ -446,39 +485,41 @@ struct HiveModule : Module {
 
 			if (processTurnTrigger(i)) {								///
 				switch (turnMode[i]) {
-					case SIXTY:
-						if (dir[i] == NW)
-							dir[i] = NE;
+					case THIRTY:
+						if (dir[i] == 11)
+							dir[i] = 0;
 						else
-							dir[i] = (DIRECTION)(dir[i] + 1);
+							dir[i] += 1;
+						break;
+					case SIXTY:
+						if (dir[i] > 9)
+							dir[i] -= 10;
+						else
+							dir[i] += 2;
 						break;
 					case NINETY:
-						if (ninetyState[i] == SIXTY) {
-							if (dir[i] == NW)
-								dir[i] = NE;
-							else
-								dir[i] = (DIRECTION)(dir[i] + 1);
-							ninetyState[i] = ONETWENTY;
-						}
-						else {
-							if (dir[i] < 4)
-								dir[i] = (DIRECTION)(dir[i] + 2);
-							else
-								dir[i] = (DIRECTION)(dir[i] - 4);
-							ninetyState[i] = SIXTY;
-						}
+						if (dir[i] > 8)
+							dir[i] -= 9;
+						else
+							dir[i] += 3;
 						break;
 					case ONETWENTY:
-						if (dir[i] < 4)
-								dir[i] = (DIRECTION)(dir[i] + 2);
-							else
-								dir[i] = (DIRECTION)(dir[i] - 4);
+						if (dir[i] > 7)
+							dir[i] -= 8;
+						else
+							dir[i] += 4;
+						break;
+					case ONEFIFTY:
+						if (dir[i] > 6)
+							dir[i] -= 7;
+						else
+							dir[i] += 5;
 						break;
 					case ONEEIGHTY:
-						if (dir[i] < 3)
-							dir[i] = (DIRECTION)(dir[i] + 3);
+						if (dir[i] > 5)
+							dir[i] -= 6;
 						else
-							dir[i] = (DIRECTION)(dir[i] - 3);
+							dir[i] += 6;
 						break;
 				}
 			}
@@ -683,7 +724,6 @@ struct HiveModule : Module {
 			json_object_set_new(portJ, "rPos", json_integer(rPos[i]));								///
 			json_object_set_new(portJ, "dir", json_integer(dir[i]));								///
 			json_object_set_new(portJ, "turnMode", json_integer(turnMode[i]));
-			json_object_set_new(portJ, "ninetyState", json_integer(ninetyState[i]));    			///
 			json_object_set_new(portJ, "outMode", json_integer(outMode[i]));
 			json_object_set_new(portJ, "ratchetingProb", json_real(ratchetingProb[i]));
 			json_object_set_new(portJ, "ratchetingEnabled", json_boolean(ratchetingEnabled[i]));
@@ -730,12 +770,11 @@ struct HiveModule : Module {
 		json_array_foreach(portsJ, portIndex, portJ) {
 			qStartPos[portIndex] = json_integer_value(json_object_get(portJ, "qStartPos"));							///
 			rStartPos[portIndex] = json_integer_value(json_object_get(portJ, "rStartPos"));							///	
-			startDir[portIndex] = (DIRECTION)json_integer_value(json_object_get(portJ, "startDir"));				///
+			startDir[portIndex] = json_integer_value(json_object_get(portJ, "startDir"));				///
 			qPos[portIndex] = json_integer_value(json_object_get(portJ, "qPos"));									///
 			rPos[portIndex] = json_integer_value(json_object_get(portJ, "rPos"));									///
-			dir[portIndex] = (DIRECTION)json_integer_value(json_object_get(portJ, "dir"));							///
+			dir[portIndex] = json_integer_value(json_object_get(portJ, "dir"));							///
 			turnMode[portIndex] = (TURNMODE)json_integer_value(json_object_get(portJ, "turnMode"));
-			ninetyState[portIndex] = (TURNMODE)json_integer_value(json_object_get(portJ, "ninetyState"));       	///
 			outMode[portIndex] = (OUTMODE)json_integer_value(json_object_get(portJ, "outMode"));
 			ratchetingEnabled[portIndex] = json_boolean_value(json_object_get(portJ, "ratchetingEnabled"));
 
@@ -1248,45 +1287,73 @@ struct HiveStartPosEditWidget : OpaqueWidget, HiveDrawHelper<MODULE> {
 			for (int i = 0; i < module->numPorts; i++) {
 				// Direction triangle
 				Vec c = module->hexToPixel(Vec(module->qStartPos[i], module->rStartPos[i]), module->hexSizeFactor);	
-				Vec p1 = Vec(radius, 0);
-				Vec p2 = Vec(0, -radius);
-				Vec p3 = Vec(0, radius);
+				Vec vertices[3];
+				Vec north[3] = {Vec(0, -radius),
+								Vec(radius, 0),
+								Vec(-radius, 0)};
+				Vec east[3] = {	Vec(radius, 0),
+								Vec(0, radius),
+								Vec(0, -radius)};
+				Vec south[3] = {Vec(0, radius),
+								Vec(-radius, 0),
+								Vec(radius, 0)};
+				Vec west[3] = {	Vec(-radius, 0),
+								Vec(0, -radius),
+								Vec(0, radius)};
 				switch (module->startDir[i]) {
-					case NE:
-						p1 = c.plus(p1.rotate(M_PI / -3.f));
-						p2 = c.plus(p2.rotate(M_PI / -3.f));
-						p3 = c.plus(p3.rotate(M_PI / -3.f));
+					case 0:
+						for (int i = 0; i < 3; i++)
+							vertices[i] = c.plus(north[i]);
 						break;
-					case E:
-						p1 = c.plus(p1);
-						p2 = c.plus(p2);
-						p3 = c.plus(p3);
+					case 1:
+						for (int i = 0; i < 3; i++)
+							vertices[i] = c.plus(north[i].rotate(M_PI / 6));
 						break;
-					case SE:
-						p1 = c.plus(p1.rotate(M_PI / 3.f));
-						p2 = c.plus(p2.rotate(M_PI / 3.f));
-						p3 = c.plus(p3.rotate(M_PI / 3.f));
+					case 2:
+						for (int i = 0; i < 3; i++)
+							vertices[i] = c.plus(north[i].rotate(M_PI / 3));
 						break;
-					case SW:
-						p1 = c.plus(p1.rotate(2.f * M_PI / 3.f));
-						p2 = c.plus(p2.rotate(2.f * M_PI / 3.f));
-						p3 = c.plus(p3.rotate(2.f * M_PI / 3.f));
+					case 3:
+						for (int i = 0; i < 3; i++)
+							vertices[i] = c.plus(east[i]);
 						break;
-					case W:
-						p1 = c.minus(p1);
-						p2 = c.minus(p2);
-						p3 = c.minus(p3);				
+					case 4:
+						for (int i = 0; i < 3; i++)
+							vertices[i] = c.plus(east[i].rotate(M_PI / 6));
 						break;
-					case NW:
-						p1 = c.plus(p1.rotate(2.f * M_PI / -3.f));
-						p2 = c.plus(p2.rotate(2.f * M_PI / -3.f));
-						p3 = c.plus(p3.rotate(2.f * M_PI / -3.f));
+					case 5:
+						for (int i = 0; i < 3; i++)
+							vertices[i] = c.plus(east[i].rotate(M_PI / 3));
+						break;
+					case 6:
+						for (int i = 0; i < 3; i++)
+							vertices[i] = c.plus(south[i]);
+						break;
+					case 7:
+						for (int i = 0; i < 3; i++)
+							vertices[i] = c.plus(south[i].rotate(M_PI / 6));
+						break;
+					case 8:
+						for (int i = 0; i < 3; i++)
+							vertices[i] = c.plus(south[i].rotate(M_PI / 3));		
+						break;
+					case 9:
+						for (int i = 0; i < 3; i++)
+							vertices[i] = c.plus(west[i]);
+						break;
+					case 10:
+						for (int i = 0; i < 3; i++)
+							vertices[i] = c.plus(west[i].rotate(M_PI / 6));
+						break;
+					case 11:
+						for (int i = 0; i < 3; i++)
+							vertices[i] = c.plus(west[i].rotate(M_PI / 3));		
 						break;
 				}
 				nvgBeginPath(args.vg);
-				nvgMoveTo(args.vg, p1.x, p1.y);
-				nvgLineTo(args.vg, p2.x, p2.y);
-				nvgLineTo(args.vg, p3.x, p3.y);
+				nvgMoveTo(args.vg, vertices[0].x, vertices[0].y);
+				nvgLineTo(args.vg, vertices[1].x, vertices[1].y);
+				nvgLineTo(args.vg, vertices[2].x, vertices[2].y);
 				nvgClosePath(args.vg);
 				nvgFillColor(args.vg, color::mult(color::WHITE, 0.9f));
 				nvgFill(args.vg);
@@ -1347,7 +1414,7 @@ struct HiveStartPosEditWidget : OpaqueWidget, HiveDrawHelper<MODULE> {
 
 		struct DirectionItem : MenuItem {
 			MODULE* module;
-			DIRECTION dir;											///
+			int dir;											///
 			int id;
 
 			void onAction(const event::Action &e) override {
@@ -1362,12 +1429,18 @@ struct HiveStartPosEditWidget : OpaqueWidget, HiveDrawHelper<MODULE> {
 		};
 
 		menu->addChild(construct<MenuLabel>(&MenuLabel::text, "Start direction"));
-		menu->addChild(construct<DirectionItem>(&MenuItem::text, "NE", &DirectionItem::module, module, &DirectionItem::id, selectedId, &DirectionItem::dir, NE));			///
-		menu->addChild(construct<DirectionItem>(&MenuItem::text, "E", &DirectionItem::module, module, &DirectionItem::id, selectedId, &DirectionItem::dir, E));				///
-		menu->addChild(construct<DirectionItem>(&MenuItem::text, "SE", &DirectionItem::module, module, &DirectionItem::id, selectedId, &DirectionItem::dir, SE));			///
-		menu->addChild(construct<DirectionItem>(&MenuItem::text, "SW", &DirectionItem::module, module, &DirectionItem::id, selectedId, &DirectionItem::dir, SW));			///
-		menu->addChild(construct<DirectionItem>(&MenuItem::text, "W", &DirectionItem::module, module, &DirectionItem::id, selectedId, &DirectionItem::dir, W));				///
-		menu->addChild(construct<DirectionItem>(&MenuItem::text, "NW", &DirectionItem::module, module, &DirectionItem::id, selectedId, &DirectionItem::dir, NW));			///
+		menu->addChild(construct<DirectionItem>(&MenuItem::text, "12 O'Clock", &DirectionItem::module, module, &DirectionItem::id, selectedId, &DirectionItem::dir, 0));			///
+		menu->addChild(construct<DirectionItem>(&MenuItem::text, "1 O'Clock", &DirectionItem::module, module, &DirectionItem::id, selectedId, &DirectionItem::dir, 1));				///
+		menu->addChild(construct<DirectionItem>(&MenuItem::text, "2 O'Clock", &DirectionItem::module, module, &DirectionItem::id, selectedId, &DirectionItem::dir, 2));			///
+		menu->addChild(construct<DirectionItem>(&MenuItem::text, "3 O'Clock", &DirectionItem::module, module, &DirectionItem::id, selectedId, &DirectionItem::dir, 3));			///
+		menu->addChild(construct<DirectionItem>(&MenuItem::text, "4 O'Clock", &DirectionItem::module, module, &DirectionItem::id, selectedId, &DirectionItem::dir, 4));				///
+		menu->addChild(construct<DirectionItem>(&MenuItem::text, "5 O'Clock", &DirectionItem::module, module, &DirectionItem::id, selectedId, &DirectionItem::dir, 5));			///
+		menu->addChild(construct<DirectionItem>(&MenuItem::text, "6 O'Clock", &DirectionItem::module, module, &DirectionItem::id, selectedId, &DirectionItem::dir, 6));			///
+		menu->addChild(construct<DirectionItem>(&MenuItem::text, "7 O'Clock", &DirectionItem::module, module, &DirectionItem::id, selectedId, &DirectionItem::dir, 7));			///
+		menu->addChild(construct<DirectionItem>(&MenuItem::text, "8 O'Clock", &DirectionItem::module, module, &DirectionItem::id, selectedId, &DirectionItem::dir, 8));			///
+		menu->addChild(construct<DirectionItem>(&MenuItem::text, "9 O'Clock", &DirectionItem::module, module, &DirectionItem::id, selectedId, &DirectionItem::dir, 9));			///
+		menu->addChild(construct<DirectionItem>(&MenuItem::text, "10 O'Clock", &DirectionItem::module, module, &DirectionItem::id, selectedId, &DirectionItem::dir, 10));			///
+		menu->addChild(construct<DirectionItem>(&MenuItem::text, "11 O'Clock", &DirectionItem::module, module, &DirectionItem::id, selectedId, &DirectionItem::dir, 11));			///
 
 		struct TurnModeItem : MenuItem {
 			MODULE* module;
@@ -1386,10 +1459,12 @@ struct HiveStartPosEditWidget : OpaqueWidget, HiveDrawHelper<MODULE> {
 
 		menu->addChild(new MenuSeparator());
 		menu->addChild(construct<MenuLabel>(&MenuLabel::text, "Turn mode"));
-		menu->addChild(construct<TurnModeItem>(&MenuItem::text, "Sixty", &TurnModeItem::module, module, &TurnModeItem::id, selectedId, &TurnModeItem::turnMode, TURNMODE::SIXTY));					///
-		menu->addChild(construct<TurnModeItem>(&MenuItem::text, "Ninety", &TurnModeItem::module, module, &TurnModeItem::id, selectedId, &TurnModeItem::turnMode, TURNMODE::NINETY));
-		menu->addChild(construct<TurnModeItem>(&MenuItem::text, "One-Twenty", &TurnModeItem::module, module, &TurnModeItem::id, selectedId, &TurnModeItem::turnMode, TURNMODE::ONETWENTY));			///
-		menu->addChild(construct<TurnModeItem>(&MenuItem::text, "One-Eighty", &TurnModeItem::module, module, &TurnModeItem::id, selectedId, &TurnModeItem::turnMode, TURNMODE::ONEEIGHTY));
+		menu->addChild(construct<TurnModeItem>(&MenuItem::text, "Half", &TurnModeItem::module, module, &TurnModeItem::id, selectedId, &TurnModeItem::turnMode, TURNMODE::THIRTY));					///
+		menu->addChild(construct<TurnModeItem>(&MenuItem::text, "Full", &TurnModeItem::module, module, &TurnModeItem::id, selectedId, &TurnModeItem::turnMode, TURNMODE::SIXTY));
+		menu->addChild(construct<TurnModeItem>(&MenuItem::text, "Full and Half", &TurnModeItem::module, module, &TurnModeItem::id, selectedId, &TurnModeItem::turnMode, TURNMODE::NINETY));			///
+		menu->addChild(construct<TurnModeItem>(&MenuItem::text, "Double", &TurnModeItem::module, module, &TurnModeItem::id, selectedId, &TurnModeItem::turnMode, TURNMODE::ONETWENTY));
+		menu->addChild(construct<TurnModeItem>(&MenuItem::text, "Double and Half", &TurnModeItem::module, module, &TurnModeItem::id, selectedId, &TurnModeItem::turnMode, TURNMODE::ONEFIFTY));
+		menu->addChild(construct<TurnModeItem>(&MenuItem::text, "Triple", &TurnModeItem::module, module, &TurnModeItem::id, selectedId, &TurnModeItem::turnMode, TURNMODE::ONEEIGHTY));
 
 		struct OutModeItem : MenuItem {
 			MODULE* module;
